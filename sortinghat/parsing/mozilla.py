@@ -78,7 +78,7 @@ class MozilliansParser(object):
 
         json = self.__load_json(stream)
 
-        self.__create_mozillians_org()
+        # self.__create_mozillians_org()
         self.__parse_identities(json)
 
     def __parse_identities(self, json):
@@ -150,9 +150,9 @@ class MozilliansParser(object):
                     uid.identities.append(identity)
 
                 # Mozilla affiliation
-                affiliation = mozillian['date_mozillian']
-                rol = self.__parse_mozillian_affiliation(affiliation)
-                uid.enrollments.append(rol)
+                # affiliation = mozillian['date_mozillian']
+                # rol = self.__parse_mozillian_affiliation(affiliation)
+                # uid.enrollments.append(rol)
 
                 self._identities[uuid] = uid
         except KeyError as e:
