@@ -52,6 +52,7 @@ def get_params():
     return args
 
 class Viewer(Gtk.Window):
+    ALL_FIELD = 'all'
     fields = ['name', 'email', 'username', 'source', 'id', 'uuid']
     fields_size = [300, 200, 150, 100, 100, 100]
 
@@ -79,7 +80,7 @@ class Viewer(Gtk.Window):
         self.box.pack_start(self.filter_box, False, False, 0)
 
         # Sample Button for loading the identities
-        self.button = Gtk.Button(label="Show identities")
+        self.button = Gtk.Button(label="Load identities")
         self.button.connect("clicked", self.on_show_identities)
         self.filter_box.pack_start(self.button, False, False, 0)
 
@@ -94,11 +95,32 @@ class Viewer(Gtk.Window):
         self.filter_box.pack_start(sources_combo, False, False, 0)
         self.current_filter_source = None
 
+        # Combo + entry box for free text searching
+        self.search_text = Gtk.Entry()
+        self.search_text.set_text("Search")
+        self.search_text.connect("activate", self.on_search_text_changed)
+        self.filter_box.pack_start(self.search_text, True, True, 0)
+        self.current_filter_search = None
+
+        self.sources_liststore_all = Gtk.ListStore(str)
+        self.sources_liststore_all.append([self.ALL_FIELD])
+        for f in self.fields:
+            self.sources_liststore_all.append([f])
+        sources_search = Gtk.ComboBox.new_with_model(self.sources_liststore_all)
+        renderer_text = Gtk.CellRendererText()
+        sources_search.pack_start(renderer_text, True)
+        sources_search.add_attribute(renderer_text, "text", 0)
+        sources_search.connect("changed", self.on_sources_search_changed)
+        self.filter_box.pack_start(sources_search, False, False, 0)
+        self.current_filter_source_search = None
+
         # Identities viewer
         self.identities_liststore = Gtk.ListStore(str, str, str, str, str, str)
         self.source_filter = self.identities_liststore.filter_new()
         self.source_filter.set_visible_func(self.source_filter_func)
-        self.treeview = Gtk.TreeView.new_with_model(self.identities_liststore)
+        self.search_filter = self.source_filter.filter_new()
+        self.search_filter.set_visible_func(self.source_filter_search_func)
+        self.treeview = Gtk.TreeView.new_with_model(self.search_filter)
         self.treeview.get_selection().connect("changed", self.on_tree_selection_changed)
         for i, column_title in enumerate(self.fields):
             renderer = Gtk.CellRendererText()
@@ -113,13 +135,36 @@ class Viewer(Gtk.Window):
 
         self.sources = []  # list with the data sources available
 
+    def on_search_text_changed(self, entry):
+        self.current_filter_search = entry.get_text()
+        logging.debug("Activate received from entry text %s", self.current_filter_search)
+        self.search_filter.refilter()
+
+    def on_sources_search_changed(self, combo):
+        pass
+
     def source_filter_func(self, model, iter, data):
         """Tests if the source in the row is the one in the filter"""
         if self.current_filter_source is None or self.current_filter_source == "None":
             return True
         else:
             return model[iter][3] == self.current_filter_source
-        pass
+
+    def source_filter_search_func(self, model, iter, data):
+        """Tests if the search text in the row is the one in the filter"""
+        found = False
+        if self.current_filter_search is None or self.current_filter_search == "None":
+            return True
+        else:
+            found = False
+            # Try to find the text in all fields
+            for col in model[iter]:
+                if not col:
+                    continue
+                if self.current_filter_search in col:
+                    found = True
+                    break
+        return found
 
     def on_name_combo_changed(self, combo):
         tree_iter = combo.get_active_iter()
@@ -140,6 +185,7 @@ class Viewer(Gtk.Window):
                 data = model[treeiter][i]
                 if data:
                     text += model[treeiter][i]
+        print(text)
 
     def on_show_identities(self, widget):
         logging.debug("Getting identities")
