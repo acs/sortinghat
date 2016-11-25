@@ -78,6 +78,7 @@ class Viewer(Gtk.Window):
             renderer = Gtk.CellRendererText()
             column = Gtk.TreeViewColumn(column_title, renderer, text=i)
             column.set_max_width(self.fields_size[i])
+            column.set_sort_column_id(i)
             self.treeview.append_column(column)
         self.scrollable_treelist = Gtk.ScrolledWindow()
         self.scrollable_treelist.set_vexpand(True)
