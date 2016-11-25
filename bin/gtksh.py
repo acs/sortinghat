@@ -57,6 +57,13 @@ class Viewer(Gtk.Window):
 
     def __init__(self, sh_db=None):
         self.sh_db = sh_db
+
+        self.identities_liststore = None  # Identities data store
+        self.sources_liststore = None  # SH sources data store
+
+        self.__layout()
+
+    def __layout(self):
         Gtk.Window.__init__(self, title="SortingHat Viewer")
         w_width = 20
         for f in self.fields_size:
@@ -67,11 +74,30 @@ class Viewer(Gtk.Window):
         self.box = Gtk.VBox(spacing=6)
         self.add(self.box)
 
-        # Add widgets to the layout
+        # Filter HBox
+        self.filter_box = Gtk.HBox(spacing=6)
+        self.box.pack_start(self.filter_box, False, False, 0)
+
+        # Sample Button for loading the identities
         self.button = Gtk.Button(label="Show identities")
         self.button.connect("clicked", self.on_show_identities)
-        self.box.pack_start(self.button, False, False, 0)
+        self.filter_box.pack_start(self.button, False, False, 0)
+
+        # Combo for filterting using data sources
+        self.sources_liststore = Gtk.ListStore(str)
+        self.sources_liststore.append([None])
+        sources_combo = Gtk.ComboBox.new_with_model(self.sources_liststore)
+        renderer_text = Gtk.CellRendererText()
+        sources_combo.pack_start(renderer_text, True)
+        sources_combo.add_attribute(renderer_text, "text", 0)
+        sources_combo.connect("changed", self.on_name_combo_changed)
+        self.filter_box.pack_start(sources_combo, False, False, 0)
+        self.current_filter_source = None
+
+        # Identities viewer
         self.identities_liststore = Gtk.ListStore(str, str, str, str, str, str)
+        self.source_filter = self.identities_liststore.filter_new()
+        self.source_filter.set_visible_func(self.source_filter_func)
         self.treeview = Gtk.TreeView.new_with_model(self.identities_liststore)
         self.treeview.get_selection().connect("changed", self.on_tree_selection_changed)
         for i, column_title in enumerate(self.fields):
@@ -85,6 +111,26 @@ class Viewer(Gtk.Window):
         self.scrollable_treelist.add(self.treeview)
         self.box.pack_start(self.scrollable_treelist, True, True, 0)
 
+        self.sources = []  # list with the data sources available
+
+    def source_filter_func(self, model, iter, data):
+        """Tests if the source in the row is the one in the filter"""
+        if self.current_filter_source is None or self.current_filter_source == "None":
+            return True
+        else:
+            return model[iter][3] == self.current_filter_source
+        pass
+
+    def on_name_combo_changed(self, combo):
+        tree_iter = combo.get_active_iter()
+        if tree_iter != None:
+            model = combo.get_model()
+            source = model[tree_iter][0]
+            logging.debug("Selected: source=%s" % source)
+            self.current_filter_source = source
+            # self.current_filter_source = combo.get_label()
+            self.source_filter.refilter()
+
     def on_tree_selection_changed(self, selection):
         model, treeiter = selection.get_selected()
         if treeiter != None:
@@ -94,22 +140,23 @@ class Viewer(Gtk.Window):
                 data = model[treeiter][i]
                 if data:
                     text += model[treeiter][i]
-            print("You selected", text[1:])
 
     def on_show_identities(self, widget):
         logging.debug("Getting identities")
         uids = api.unique_identities(self.sh_db)
         logging.debug("Showing identities")
-        ndebug = 0
+        ntotal = 0
         for uid in uids:
-            if ndebug > 10000:
-                break
-            ndebug += 1
+            ntotal += 1
             sh_id = []
             sh_id_dict = uid.to_dict()['identities'][0]
             for f in self.fields:
                 sh_id.append(sh_id_dict[f])
+                if f == 'source':
+                    if sh_id_dict[f] not in [r[0] for r in self.sources_liststore]:
+                        self.sources_liststore.append([sh_id_dict[f]])
             self.identities_liststore.append(list(sh_id))
+        logging.debug("Total identities: %i", ntotal)
 
 
 if __name__ == '__main__':
