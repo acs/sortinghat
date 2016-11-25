@@ -53,6 +53,7 @@ def get_params():
 
 class Viewer(Gtk.Window):
     ALL_FIELD = 'all'
+    multiple_selection = True
     fields = ['name', 'email', 'username', 'source', 'id', 'uuid']
     fields_size = [300, 200, 150, 100, 100, 100]
 
@@ -121,7 +122,11 @@ class Viewer(Gtk.Window):
         self.search_filter = self.source_filter.filter_new()
         self.search_filter.set_visible_func(self.source_filter_search_func)
         self.treeview = Gtk.TreeView.new_with_model(self.search_filter)
-        self.treeview.get_selection().connect("changed", self.on_tree_selection_changed)
+        if self.multiple_selection:
+            self.treeview.get_selection().set_mode(Gtk.SelectionMode.MULTIPLE)
+            self.treeview.get_selection().connect("changed", self.on_tree_selection_multiple_changed)
+        else:
+            self.treeview.get_selection().connect("changed", self.on_tree_selection_single_changed)
         for i, column_title in enumerate(self.fields):
             renderer = Gtk.CellRendererText()
             column = Gtk.TreeViewColumn(column_title, renderer, text=i)
@@ -135,6 +140,15 @@ class Viewer(Gtk.Window):
 
         self.sources = []  # list with the data sources available
 
+        # Actions button bar
+        self.action_box = Gtk.HBox(spacing=6)
+        self.box.pack_start(self.action_box, False, False, 0)
+
+        # Sample Button for merging identities
+        self.button_merge = Gtk.Button(label="Merge identities")
+        self.button_merge.connect("clicked", self.on_merge_identities)
+        self.filter_box.pack_start(self.button_merge, False, False, 0)
+
     def on_search_text_changed(self, entry):
         self.current_filter_search = entry.get_text()
         logging.debug("Activate received from entry text %s", self.current_filter_search)
@@ -142,6 +156,23 @@ class Viewer(Gtk.Window):
 
     def on_sources_search_changed(self, combo):
         pass
+
+    def on_merge_identities(self, combo):
+        logging.debug("Merging identities")
+        selection = self.treeview.get_selection()
+        model, pathlist = selection.get_selected_rows()
+        ids = []
+        if model != None:
+            logging.debug("ids to merge ...")
+            for path in pathlist:
+                # id is the 5th field
+                ids.append(model[path][5])
+                logging.debug ("id:", model[path][5])
+            logging.debug("Merging identities")
+            to_uuid = ids[0]  # merge all ids with the first one
+            for uid in ids:
+                api.merge_unique_identities(self.sh_db, uid, to_uuid)
+            logging.debug("Merging done")
 
     def source_filter_func(self, model, iter, data):
         """Tests if the source in the row is the one in the filter"""
@@ -176,7 +207,21 @@ class Viewer(Gtk.Window):
             # self.current_filter_source = combo.get_label()
             self.source_filter.refilter()
 
-    def on_tree_selection_changed(self, selection):
+    def on_tree_selection_multiple_changed(self, selection):
+        model, pathlist = selection.get_selected_rows()
+        if model != None:
+            text = ''
+            for path in pathlist:
+                for i, column_title in enumerate(self.fields):
+                    text += ','
+                    data = model[path][i]
+                    if data:
+                        text += model[path][i]
+                text += '\n'
+        # print(text)
+
+
+    def on_tree_selection_single_changed(self, selection):
         model, treeiter = selection.get_selected()
         if treeiter != None:
             text = ''
@@ -194,6 +239,8 @@ class Viewer(Gtk.Window):
         ntotal = 0
         for uid in uids:
             ntotal += 1
+            # if ntotal > 1000:
+            #     break
             sh_id = []
             sh_id_dict = uid.to_dict()['identities'][0]
             for f in self.fields:
