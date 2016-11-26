@@ -25,7 +25,8 @@ import logging
 
 import gi
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk
+gi.require_version('Gdk', '3.0')
+from gi.repository import Gdk, Gtk, GObject
 
 from sortinghat import api
 from sortinghat.db.database import Database
@@ -62,6 +63,7 @@ class Viewer(Gtk.Window):
 
         self.identities_liststore = None  # Identities data store
         self.sources_liststore = None  # SH sources data store
+        # self.sources = []  # list with the data sources available
 
         self.__layout()
 
@@ -76,11 +78,14 @@ class Viewer(Gtk.Window):
         self.box = Gtk.VBox(spacing=6)
         self.add(self.box)
 
-        # Filter HBox
+        #
+        # Filter HBox: Load, Filtering and Merging
+        #
+
         self.filter_box = Gtk.HBox(spacing=6)
         self.box.pack_start(self.filter_box, False, False, 0)
 
-        # Sample Button for loading the identities
+        # Button for loading the identities
         self.button = Gtk.Button(label="Load identities")
         self.button.connect("clicked", self.on_show_identities)
         self.filter_box.pack_start(self.button, False, False, 0)
@@ -96,26 +101,35 @@ class Viewer(Gtk.Window):
         self.filter_box.pack_start(sources_combo, False, False, 0)
         self.current_filter_source = None
 
-        # Combo + entry box for free text searching
+        # Entry box for free text searching
         self.search_text = Gtk.Entry()
         self.search_text.set_text("Search")
         self.search_text.connect("activate", self.on_search_text_changed)
         self.filter_box.pack_start(self.search_text, True, True, 0)
         self.current_filter_search = None
 
-        self.sources_liststore_all = Gtk.ListStore(str)
-        self.sources_liststore_all.append([self.ALL_FIELD])
-        for f in self.fields:
-            self.sources_liststore_all.append([f])
-        sources_search = Gtk.ComboBox.new_with_model(self.sources_liststore_all)
-        renderer_text = Gtk.CellRendererText()
-        sources_search.pack_start(renderer_text, True)
-        sources_search.add_attribute(renderer_text, "text", 0)
-        sources_search.connect("changed", self.on_sources_search_changed)
-        self.filter_box.pack_start(sources_search, False, False, 0)
-        self.current_filter_source_search = None
+        # Combo for searching in a specific data source: Not used yet
+        # self.sources_liststore_all = Gtk.ListStore(str)
+        # self.sources_liststore_all.append([self.ALL_FIELD])
+        # for f in self.fields:
+        #     self.sources_liststore_all.append([f])
+        # sources_search = Gtk.ComboBox.new_with_model(self.sources_liststore_all)
+        # renderer_text = Gtk.CellRendererText()
+        # sources_search.pack_start(renderer_text, True)
+        # sources_search.add_attribute(renderer_text, "text", 0)
+        # sources_search.connect("changed", self.on_sources_search_changed)
+        # self.filter_box.pack_start(sources_search, False, False, 0)
+        # self.current_filter_source_search = None
 
+        # Button for merging identities
+        self.button_merge = Gtk.Button(label="Merge identities")
+        self.button_merge.connect("clicked", self.on_merge_identities)
+        self.filter_box.pack_start(self.button_merge, False, False, 0)
+
+        #
         # Identities viewer
+        #
+
         self.identities_liststore = Gtk.ListStore(str, str, str, str, str, str)
         self.source_filter = self.identities_liststore.filter_new()
         self.source_filter.set_visible_func(self.source_filter_func)
@@ -138,17 +152,6 @@ class Viewer(Gtk.Window):
         self.scrollable_treelist.add(self.treeview)
         self.box.pack_start(self.scrollable_treelist, True, True, 0)
 
-        self.sources = []  # list with the data sources available
-
-        # Actions button bar
-        self.action_box = Gtk.HBox(spacing=6)
-        self.box.pack_start(self.action_box, False, False, 0)
-
-        # Sample Button for merging identities
-        self.button_merge = Gtk.Button(label="Merge identities")
-        self.button_merge.connect("clicked", self.on_merge_identities)
-        self.filter_box.pack_start(self.button_merge, False, False, 0)
-
     def on_search_text_changed(self, entry):
         self.current_filter_search = entry.get_text()
         logging.debug("Activate received from entry text %s", self.current_filter_search)
@@ -167,7 +170,7 @@ class Viewer(Gtk.Window):
             for path in pathlist:
                 # id is the 5th field
                 ids.append(model[path][5])
-                logging.debug ("id:", model[path][5])
+                logging.debug ("id: %s", model[path][5])
             logging.debug("Merging identities")
             to_uuid = ids[0]  # merge all ids with the first one
             for uid in ids:
@@ -198,14 +201,18 @@ class Viewer(Gtk.Window):
         return found
 
     def on_name_combo_changed(self, combo):
+        def refilter(self):
+            self.source_filter.refilter()
+            self.get_window().set_cursor(None)
+
         tree_iter = combo.get_active_iter()
         if tree_iter != None:
             model = combo.get_model()
             source = model[tree_iter][0]
-            logging.debug("Selected: source=%s" % source)
+            logging.debug("Selected: source=%s", source)
             self.current_filter_source = source
-            # self.current_filter_source = combo.get_label()
-            self.source_filter.refilter()
+            self.get_window().set_cursor(Gdk.Cursor(Gdk.CursorType.WATCH))
+            GObject.idle_add(refilter, self)
 
     def on_tree_selection_multiple_changed(self, selection):
         model, pathlist = selection.get_selected_rows()
@@ -233,23 +240,28 @@ class Viewer(Gtk.Window):
         print(text)
 
     def on_show_identities(self, widget):
-        logging.debug("Getting identities")
-        uids = api.unique_identities(self.sh_db)
-        logging.debug("Showing identities")
-        ntotal = 0
-        for uid in uids:
-            ntotal += 1
-            # if ntotal > 1000:
-            #     break
-            sh_id = []
-            sh_id_dict = uid.to_dict()['identities'][0]
-            for f in self.fields:
-                sh_id.append(sh_id_dict[f])
-                if f == 'source':
-                    if sh_id_dict[f] not in [r[0] for r in self.sources_liststore]:
-                        self.sources_liststore.append([sh_id_dict[f]])
-            self.identities_liststore.append(list(sh_id))
-        logging.debug("Total identities: %i", ntotal)
+        def show_identities(self):
+            logging.debug("Getting identities")
+            uids = api.unique_identities(self.sh_db)
+            logging.debug("Showing identities")
+            ntotal = 0
+            for uid in uids:
+                ntotal += 1
+                # if ntotal > 1000:
+                #     break
+                sh_id = []
+                sh_id_dict = uid.to_dict()['identities'][0]
+                for f in self.fields:
+                    sh_id.append(sh_id_dict[f])
+                    if f == 'source':
+                        if sh_id_dict[f] not in [r[0] for r in self.sources_liststore]:
+                            self.sources_liststore.append([sh_id_dict[f]])
+                self.identities_liststore.append(list(sh_id))
+            self.get_window().set_cursor(None)
+            logging.debug("Total identities: %i", ntotal)
+
+        GObject.idle_add(show_identities, self)
+        self.get_window().set_cursor(Gdk.Cursor(Gdk.CursorType.WATCH))
 
 
 if __name__ == '__main__':
