@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+#  Script for checking GrimoireLab yaml identities files
+#
+# Copyright (C) 2016-2017 Bitergia
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+#
+# Author:
+#   Alvaro del Castillo San Felix <acs@bitergia.com>
+#
+
+import argparse
+
+import yaml
+
+def get_params():
+    """ Read command line params and return them """
+
+    parser = argparse.ArgumentParser(usage="usage:grimoirelab2sh_check [options]",
+                                     description="Checker for GrimoireLab yaml identities files")
+    parser.add_argument('-g', '--debug', dest='debug', action='store_true')
+    parser.add_argument('-c', '--compare', dest='compare_files', type=str, nargs='+')
+
+    args = parser.parse_args()
+
+    return args
+
+
+def compare_profiles(profile, profile1):
+    """ Compare two profiles """
+
+    equal = True
+
+    profile_fields = ['profile', 'email', 'enrollments']
+
+    # {
+    # 'profile': {'name': 'Amit Joshi'},
+    # 'github': ['A-Joshi'],
+    # 'email': ['amit.joshi@symphony.com', 'A-Joshi@users.noreply.github.com'],
+    # 'enrollments': [{'organization': 'Symphony LLC'}]
+    # }
+
+    # Compare profile
+    if profile['profile']['name'] != profile1['profile']['name']:
+        print("Profile name not equal", "\n")
+
+    # Compare emails
+    emails = set([email for email in profile['email']])
+    emails1 = set([email for email in profile1['email']])
+    if emails1 != emails:
+        print("* Emails not equal", profile, profile1, "\n")
+        equal = False
+
+    # Compare enrollments
+    if 'enrollments' in profile and 'enrollments' in profile1:
+        enrollments = set([enrollment['organization'] for enrollment in profile['enrollments']])
+        enrollments1 = set([enrollment['organization'] for enrollment in profile1['enrollments']])
+        if enrollments1 != enrollments:
+            print("* Enrollments not equal", profile, profile1, "\n")
+            equal = False
+    elif 'enrollments' in profile or 'enrollments' in profile1:
+        print("* Enrollments not equal", profile, profile1, "\n")
+        equal = False
+
+    # Compare sources
+    sources = set([field for field in profile.keys() if field not in profile_fields])
+    sources1 = set([field for field in profile1.keys() if field not in profile_fields])
+    if sources1 != sources:
+        print("* Sources not equal", sources, sources1, profile, profile1, "\n")
+        equal = False
+    for source in sources:
+        if source not in profile or source not in profile1:
+            print("* Sources not equal", sources, sources1, profile, profile1, "\n")
+            equal = False
+        elif profile[source] != profile1[source]:
+            print("* Sources not equal", sources, sources1, profile, profile1, "\n")
+            equal = False
+
+    return equal
+
+
+def compare_files(files):
+    """ Compare the profiles between two files """
+    f1 = yaml.load(open(files[0]))
+    f2 = yaml.load(open(files[1]))
+
+    f1_names = []
+    f2_names = []
+    checked = 0
+    checked_equal = 0
+    checked_changed = 0
+    f1_not_f2 = 0
+    f2_not_f1 = 0
+
+    for profile in f1:
+        f1_names.append(profile['profile']['name'])
+
+    for profile in f2:
+        f2_names.append(profile['profile']['name'])
+
+    print("Total profiles in", files[0], len(f1_names))
+    print("Total profiles in", files[1], len(f2_names))
+
+    # Check that all profiles in f1 are in f2
+    for name in f1_names:
+        if name not in f2_names:
+            print("*", name, "does not exists in ", files[1], "\n")
+            f1_not_f2 += 1
+
+    # Check that all profiles in f2 are in f1
+    for name in f2_names:
+        if name not in f1_names:
+            print("*", name, "does not exists in ", files[0], "\n")
+            f2_not_f1 += 1
+
+    # Let's check enrollments for all the profiles
+    for profile in f2:
+        name = profile['profile']['name']
+        # Time to find the profile in f1
+        for profile1 in f1:
+            if profile1['profile']['name'] == name:
+                if compare_profiles(profile, profile1):
+                    checked_equal += 1
+                else:
+                    checked_changed += 1
+                checked += 1
+                break
+
+    print("Total profiles checked", checked)
+    print("Total profiles equal", checked_equal)
+    print("Total profiles changed", checked_changed)
+    print("Total new profiles", f2_not_f1)
+    print("Total removed profiles", f1_not_f2)
+
+if __name__ == '__main__':
+    ARGS = get_params()
+    compare_files(ARGS.compare_files)
